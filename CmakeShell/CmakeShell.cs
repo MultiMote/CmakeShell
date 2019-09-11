@@ -55,14 +55,6 @@ namespace CmakeShell {
             ["Eclipse CDT4 - Unix Makefiles"] = "eclipse-unix"
         };
 
-        private void CountLines() {
-            var builder = new StringBuilder();
-
-            foreach (var filePath in SelectedItemPaths) {
-                MessageBox.Show(filePath);
-            }
-        }
-
         protected override bool CanShowMenu() {
             if (SelectedItemPaths.Count() != 1) {
                 return false;
