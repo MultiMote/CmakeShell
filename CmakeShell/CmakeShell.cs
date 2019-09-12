@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
 namespace CmakeShell {
@@ -55,21 +56,61 @@ namespace CmakeShell {
             ["Eclipse CDT4 - Unix Makefiles"] = "eclipse-unix"
         };
 
+        Dictionary<string, string> sourceFileExtentions = new Dictionary<string, string> {
+            [".cpp"] = "c++",
+            [".cxx"] = "c++",
+            [".cpp"] = "c++",
+            [".c++"] = "c++",
+            [".cc"] = "c++",
+            [".c"] = "c",
+        };
+
+        Dictionary<string, string> headerFileExtentions = new Dictionary<string, string> {
+            [".hpp"] = "c++",
+            [".h"] = "all"
+        };
+
+        private string GetCmakeVersion() {
+            var cmakeVersionProcess = new Process {
+                StartInfo = new ProcessStartInfo {
+                    FileName = "cmake",
+                    Arguments = "--version",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    CreateNoWindow = true
+                }
+            };
+
+            cmakeVersionProcess.Start();
+            Regex rx = new Regex("cmake version ([0-9\\.]+)");
+            while (!cmakeVersionProcess.StandardOutput.EndOfStream) {
+                var match = rx.Match(cmakeVersionProcess.StandardOutput.ReadLine());
+                if (match.Success) {
+                    return match.Groups[1].Value;
+                   
+                }
+            }
+            return "3.1";
+        }
+
+
         protected override bool CanShowMenu() {
             if (SelectedItemPaths.Count() != 1) {
                 return false;
             }
             string path = SelectedItemPaths.First();
-            return File.Exists(path + "\\CMakeLists.txt") || File.Exists(path + "\\CMakeCache.txt");
+            return File.Exists(path + "\\CMakeLists.txt") 
+                || File.Exists(path + "\\CMakeCache.txt")
+                || Control.ModifierKeys == Keys.Shift;
         }
-
 
         protected override ContextMenuStrip CreateMenu() {
             var menu = new ContextMenuStrip();
             string path = SelectedItemPaths.First();
-            
-            var cmakeMenu = new ToolStripMenuItem("CMake");
-            cmakeMenu.Image = res.icon;
+
+            var cmakeMenu = new ToolStripMenuItem("CMake") {
+                Image = res.icon
+            };
 
             bool listsFound = File.Exists(path + "\\CMakeLists.txt");
             bool cacheFound = File.Exists(path + "\\CMakeCache.txt");
@@ -169,6 +210,51 @@ namespace CmakeShell {
                     cmakeGenerate.DropDownItems.Add(g);
                 }                
                 cmakeMenu.DropDownItems.Add(cmakeGenerate);
+            }
+
+            if(Control.ModifierKeys == Keys.Shift && !cacheFound && !listsFound) {
+                var createProject = new ToolStripMenuItem("Create project") {
+                    Image = res.icon
+                };
+                createProject.Click += (sender, args) => {
+                    int cCount = 0;
+                    int cppCount = 0;
+                    string sourceFilesStr = "";
+                    string project = Path.GetFileName(path).Replace(" ", "_");
+                    string cmakeVersion = GetCmakeVersion();
+
+                    foreach (string filePath in Directory.EnumerateFiles(path, "*.*", SearchOption.AllDirectories)) {                        
+                        FileInfo fi = new FileInfo(filePath);                            
+                        string relative = filePath.Remove(0, path.Length + 1).Replace("\\", "/");
+                        if (sourceFileExtentions.ContainsKey(fi.Extension)) {
+                            string language = sourceFileExtentions[fi.Extension];
+                            if (language == "c++") {
+                                cppCount++;
+                            }
+                            if (language == "c") {
+                                cCount++;
+                            }
+                            if(relative.Contains(" ")) {
+                                relative = "\"" + relative + "\"";
+                            }
+                            sourceFilesStr += "    " + relative + "\n";
+                        }   
+                    }
+
+                    string result = "cmake_minimum_required(VERSION " + cmakeVersion + ")\n\n";
+                    result += "project(" + project + ")\n\n";//todo
+                    if (cppCount > cCount) {
+                        result += "set(CMAKE_CXX_STANDARD 11)\n\n";
+                    }
+                    result += "add_executable(" + project + "\n";
+                    result += sourceFilesStr;
+                    result += ")\n";
+
+                    string listsPath = path + "\\CMakeLists.txt";
+                    MessageBox.Show(listsPath + " created");
+                    File.WriteAllText(listsPath, result);
+                };
+                cmakeMenu.DropDownItems.Add(createProject);
             }
 
             menu.Items.Add(cmakeMenu);
